@@ -19,12 +19,18 @@ var defaultIdentifierKey = @"id",
 // override this method for more complex inflections
 + (CPURL)resourcePath
 {
-    return [CPURL URLWithString:@"/" + [self railsName] + @"s"];
+    return [CPURL URLWithString:[self basePath] + [self railsName] + @"s"];
 }
 
 + (CPString)railsName
 {
     return [[self className] railsifiedString];
+}
+
+// override to change base url for absolute path
++ (CPString)basePath
+{
+    return @"/";
 }
 
 - (JSObject)attributes
@@ -51,8 +57,14 @@ var defaultIdentifierKey = @"id",
     }
 
     var attributeNames = [CPArray array],
-        attributes     = class_copyIvarList([self class]);
+        klass          = [self class],
+        attributes     = class_copyIvarList(klass);
 
+    // Retrieve ivar from parent class if any (except if the parent class is CappuccinoResource)
+    while ((klass = class_getSuperclass(klass)) != CappuccinoResource) {
+        [attributes addObjectsFromArray:class_copyIvarList(klass)];
+    }
+    
     for (var i = 0; i < attributes.length; i++) {
         [attributeNames addObject:attributes[i].name];
     }
@@ -71,11 +83,48 @@ var defaultIdentifierKey = @"id",
             var attributeName = [attribute cappifiedString];
             if ([[self attributeNames] containsObject:attributeName]) {
                 var value = attributes[attribute];
+                var numberOfArrayElements = 1;
+                var objectArray = nil;
+
                 /*
                  * I would much rather retrieve the ivar class than pattern match the
                  * response from Rails, but objective-j does not support this.
                 */
-                switch (typeof value) {
+                switch (typeOf(value)) {
+                    case "array":
+                        numberOfArrayElements = value.length;
+                        objectArray = [CPArray array];                        
+                    case "object":
+                        if(value)
+                        {
+                            try
+                            {
+                                for(var i=0;i<numberOfArrayElements;i++)
+                                {                               
+                                    var resource = [self getResourceForCustomAttribute:attributeName];
+                                    if(objectArray)
+                                        [resource setAttributes:value[i]];
+                                    else
+                                        [resource setAttributes:value];
+                                        
+                                    if(objectArray)
+                                        [objectArray addObject:resource]
+                                    else
+                                        [self setValue:resource forKey:attributeName];
+                                }
+                                if(objectArray)
+                                {
+                                    [self setValue:objectArray forKey:attributeName];                                    
+                                }
+                            }
+                            catch(anException)
+                            {
+                                CPLog.warn(@"An issue occured while translating a JSON attribute("+attributeName+") to a valid object -- " + anException)
+                            }
+                            break;
+                        }
+                        break;
+
                     case "boolean":
                         if (value) {
                             [self setValue:YES forKey:attributeName];
@@ -170,7 +219,7 @@ var defaultIdentifierKey = @"id",
 + (CPArray)all
 {
     var request = [self collectionWillLoad];
-
+    
     if (!request) {
         return NO;
     }
@@ -388,4 +437,29 @@ var defaultIdentifierKey = @"id",
     [[CPNotificationCenter defaultCenter] postNotificationName:notificationName object:self];
 }
 
+- (CPString)description
+{
+    return [CPString stringWithFormat:"<%s> id:%s", [self className], [self identifier]];
+}
+
+-(BOOL)isEqual:(CappuccinoResource)other {
+  if ([self class] == [other class] && [self identifier] == [other identifier]) {
+    if ([self identifier] == null && [other identifier] == null){
+      // Neither object has _not_ been saved (we can tell because the identifiers are null)
+      // so use the normal CPObject isEquals 
+      return([super isEqual:other]);
+    } else {
+      // This object has been saved, class and the identifiers are equal, so they are equal
+      return YES;
+    }
+  }
+  // The class or identifiers don't match
+  return NO;
+}
+
+-(BOOL)isNewRecord{
+  return ([self identifier] == null ? YES : NO)
+}
+
 @end
+

@@ -328,4 +328,22 @@ var userResourceJSON   = '{"user":{"id":1,"email":"test@test.com","password":"se
     [self assertTrue:[observer didObserve:@"UserCollectionDidLoad"]];
 }
 
+- (void)testEquality
+{
+    var same = [[User alloc] init];
+    
+    [user setAttributes:{"email":"test@test.com", "password":"secret", "id":12}];
+    [same setAttributes:{"email":"test@test.com", "password":"secret", "id":12}];
+    [self assert:user equals:same];
+}
+
+- (void)testInEquality
+{
+    var other = [[User alloc] init];
+    
+    [user setAttributes:{"email":"test@test.com", "password":"secret", "id":12}];
+    [other setAttributes:{"email":"test@test.com", "password":"secret", "id":13}];
+    [self assert:user notEqual:other];
+}
+
 @end
