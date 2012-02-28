@@ -64,7 +64,7 @@ var defaultIdentifierKey = @"id",
     while ((klass = class_getSuperclass(klass)) != CappuccinoResource) {
         [attributes addObjectsFromArray:class_copyIvarList(klass)];
     }
-    
+
     for (var i = 0; i < attributes.length; i++) {
         [attributeNames addObject:attributes[i].name];
     }
@@ -93,20 +93,20 @@ var defaultIdentifierKey = @"id",
                 switch (typeOf(value)) {
                     case "array":
                         numberOfArrayElements = value.length;
-                        objectArray = [CPArray array];                        
+                        objectArray = [CPArray array];
                     case "object":
                         if(value)
                         {
                             try
                             {
                                 for(var i=0;i<numberOfArrayElements;i++)
-                                {                               
+                                {
                                     var resource = [self getResourceForCustomAttribute:attributeName];
                                     if(objectArray)
                                         [resource setAttributes:value[i]];
                                     else
                                         [resource setAttributes:value];
-                                        
+
                                     if(objectArray)
                                         [objectArray addObject:resource]
                                     else
@@ -114,7 +114,7 @@ var defaultIdentifierKey = @"id",
                                 }
                                 if(objectArray)
                                 {
-                                    [self setValue:objectArray forKey:attributeName];                                    
+                                    [self setValue:objectArray forKey:attributeName];
                                 }
                             }
                             catch(anException)
@@ -219,7 +219,7 @@ var defaultIdentifierKey = @"id",
 + (CPArray)all
 {
     var request = [self collectionWillLoad];
-    
+
     if (!request) {
         return NO;
     }
@@ -446,7 +446,7 @@ var defaultIdentifierKey = @"id",
   if ([self class] == [other class] && [self identifier] == [other identifier]) {
     if ([self identifier] == null && [other identifier] == null){
       // Neither object has _not_ been saved (we can tell because the identifiers are null)
-      // so use the normal CPObject isEquals 
+      // so use the normal CPObject isEquals
       return([super isEqual:other]);
     } else {
       // This object has been saved, class and the identifiers are equal, so they are equal
@@ -459,6 +459,20 @@ var defaultIdentifierKey = @"id",
 
 -(BOOL)isNewRecord{
   return ([self identifier] == null ? YES : NO)
+}
+
+@end
+
+@implementation CappuccinoResource (CPCoding)
+
+- (id)initWithCoder:(CPCoder)coder
+{
+    return [[self class] find:[coder decodeObjectForKey:"identifier"]];
+}
+
+- (void)encodeWithCoder:(CPCoder)coder
+{
+    [coder encodeObject:[self identifier] forKey:"identifier"];
 }
 
 @end
