@@ -6,8 +6,12 @@ var defaultIdentifierKey = @"id",
 
 @implementation CappuccinoResource : CPObject
 {
-    CPString identifier @accessors;
+    CPString            identifier      @accessors;
+    CappuccinoResource  parentResource  @accessors;
 }
+
+#pragma mark -
+#pragma mark Class methods
 
 // override this method to use a custom identifier for lookups
 + (CPString)identifierKey
@@ -31,6 +35,18 @@ var defaultIdentifierKey = @"id",
 + (CPString)basePath
 {
     return @"/";
+}
+
+#pragma mark -
+#pragma mark Initialization
+
+- (id)init
+{
+    if (self = [super init])
+    {
+        parentResource = nil;
+    }
+    return self;
 }
 
 - (JSObject)attributes
@@ -181,6 +197,8 @@ var defaultIdentifierKey = @"id",
 
 - (BOOL)save
 {
+    CPLog.trace([self className] + ".save");
+
     var request = [self resourceWillSave];
 
     if (!request) {
@@ -200,6 +218,8 @@ var defaultIdentifierKey = @"id",
 
 - (BOOL)destroy
 {
+    CPLog.trace([self className] + ".destroy");
+
     var request = [self resourceWillDestroy];
 
     if (!request) {
@@ -235,18 +255,28 @@ var defaultIdentifierKey = @"id",
 
 + (CPArray)allWithParams:(JSObject)params
 {
-    var request = [self collectionWillLoad:params];
+    return [self allWithParams:params forParent:nil];
+}
+
++ (CPArray)allWithParams:(JSObject)params forParent:(id)parent
+{
+    var request = [self collectionWillLoad:params forParent:parent];
 
     var response = [CPURLConnection sendSynchronousRequest:request];
 
     if (response[0] >= 400) {
         return nil;
     } else {
-        return [self collectionDidLoad:response[1]];
+        return [self collectionDidLoad:response[1] forParent:parent];
     }
 }
 
 + (id)find:(CPString)identifier
+{
+    return [self find:identifier forParent:nil];
+}
+
++ (id)find:(CPString)identifier forParent:(id)parent
 {
     var request = [self resourceWillLoad:identifier];
 
@@ -259,7 +289,7 @@ var defaultIdentifierKey = @"id",
     if (response[0] >= 400) {
         return nil;
     } else {
-        return [self resourceDidLoad:response[1]];
+        return [self resourceDidLoad:response[1] forParent:parent];
     }
 }
 
@@ -294,12 +324,18 @@ var defaultIdentifierKey = @"id",
 
 + (id)resourceDidLoad:(CPString)aResponse
 {
+    return [self resourceDidLoad:aResponse forParent:nil];
+}
+
++ (id)resourceDidLoad:(CPString)aResponse forParent:(id)parent
+{
     var response         = [aResponse toJSON],
         attributes       = response[[self railsName]],
         notificationName = [self className] + "ResourceDidLoad",
         resource         = [self new];
 
     [resource setAttributes:attributes];
+    [resource setParentResource:parent];
     [[CPNotificationCenter defaultCenter] postNotificationName:notificationName object:resource];
     return resource;
 }
@@ -309,11 +345,23 @@ var defaultIdentifierKey = @"id",
     return [self collectionWillLoad:nil];
 }
 
-// can handle a JSObject or a CPDictionary
 + (CPURLRequest)collectionWillLoad:(id)params
 {
-    var path             = [self resourcePath],
+    return [self collectionWillLoad:params forParent:nil];
+}
+
+// can handle a JSObject or a CPDictionary
++ (CPURLRequest)collectionWillLoad:(id)params forParent:(id)parent
+{
+    var path,
         notificationName = [self className] + "CollectionWillLoad";
+
+    // Determine if resource path needs to be prefixed by parent
+    if (parent) {
+        path = [[parent class] resourcePath] + "/" + [parent identifier] + '/' + [self resourcePath];
+    } else {
+        path = [self resourcePath];
+    }
 
     if (params) {
         if (params.isa && [params isKindOfClass:CPDictionary]) {
@@ -337,6 +385,11 @@ var defaultIdentifierKey = @"id",
 
 + (CPArray)collectionDidLoad:(CPString)aResponse
 {
+    return [self collectionDidLoad:aResponse forParent:nil]
+}
+
++ (CPArray)collectionDidLoad:(CPString)aResponse forParent:(id)parent
+{
     var resourceArray    = [CPArray array],
         notificationName = [self className] + "CollectionDidLoad";
 
@@ -346,7 +399,9 @@ var defaultIdentifierKey = @"id",
         for (var i = 0; i < collection.length; i++) {
             var resource   = collection[i];
             var attributes = resource[[self railsName]];
-            [resourceArray addObject:[self new:attributes]];
+            var obj = [self new:attributes];
+            [obj setParentResource:parent];
+            [resourceArray addObject:obj];
         }
     }
 
@@ -362,8 +417,15 @@ var defaultIdentifierKey = @"id",
         var path             = [[self class] resourcePath] + "/" + identifier,
             notificationName = [self className] + "ResourceWillUpdate";
     } else {
-        var path             = [[self class] resourcePath],
+        var path,
             notificationName = [self className] + "ResourceWillCreate";
+
+        // Determine if resource path needs to be prefixed by parent
+        if ([self parentResource]) {
+            path = [[[self parentResource] class] resourcePath] + "/" + [[self parentResource] identifier] + '/' + [[self class] resourcePath];
+        } else {
+            path = [[self class] resourcePath];
+        }
     }
 
     if (!path) {
@@ -382,6 +444,8 @@ var defaultIdentifierKey = @"id",
 
 - (void)resourceDidSave:(CPString)aResponse
 {
+    CPLog.trace([self className] + ".resourceDidSave");
+
     if ([aResponse length] > 1)
     {
         var response    = [aResponse toJSON],
@@ -402,17 +466,20 @@ var defaultIdentifierKey = @"id",
 
 - (void)resourceDidNotSave:(CPString)aResponse
 {
+    CPLog.trace([self className] + ".resourceDidNotSave");
+
     var abstractNotificationName = [self className] + "ResourceDidNotSave";
 
-    // TODO - do something with errors
     if (identifier) {
         var notificationName = [self className] + "ResourceDidNotUpdate";
     } else {
         var notificationName = [self className] + "ResourceDidNotCreate";
     }
 
-    [[CPNotificationCenter defaultCenter] postNotificationName:notificationName object:self];
-    [[CPNotificationCenter defaultCenter] postNotificationName:abstractNotificationName object:self];
+    var userInfo = [CPDictionary dictionaryWithJSObject:[aResponse toJSON]];
+
+    [[CPNotificationCenter defaultCenter] postNotificationName:notificationName object:self userInfo:userInfo];
+    [[CPNotificationCenter defaultCenter] postNotificationName:abstractNotificationName object:self userInfo:userInfo];
 }
 
 - (CPURLRequest)resourceWillDestroy
@@ -467,11 +534,16 @@ var defaultIdentifierKey = @"id",
 
 - (id)initWithCoder:(CPCoder)coder
 {
-    return [[self class] find:[coder decodeObjectForKey:"identifier"]];
+    CPLog.trace([self className] + " initWithCoder");
+    if (self = [super init]) {
+        self = [[self class] find:[coder decodeObjectForKey:"identifier"]];
+    }
+    return self;
 }
 
 - (void)encodeWithCoder:(CPCoder)coder
 {
+    CPLog.trace([self className] + " encodeWithCoder");
     [coder encodeObject:[self identifier] forKey:"identifier"];
 }
 
